@@ -85,7 +85,7 @@ def parse_packet(raw, sensor_count=8):
 
 
 class Recording:
-    def __init__(self, root, subject, label, notes, devices, sensor_count=8, cnn=None):
+    def __init__(self, root, subject, label, notes, devices, sensor_count=8, cnn=None, extra_metadata=None):
         stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
         self.path = Path(root) / f'{stamp}_{uuid.uuid4().hex[:8]}'
         self.path.mkdir(parents=True, exist_ok=False)
@@ -109,6 +109,7 @@ class Recording:
                              amplitude_flags_available=False,
                              recording_sides=[foot for foot, state in devices.items() if state['age_s'] <= 3])
         self.metadata_path = self.path / 'metadata.json'
+        self.metadata.update(extra_metadata or {})
         try:
             self.metadata_path.write_text(json.dumps(self.metadata, indent=2), encoding='utf-8')
             raw = (self.path / 'packets.jsonl').open('x', encoding='utf-8')
@@ -122,6 +123,9 @@ class Recording:
             columns += [f'p{i}' for i in range(1, 9)]
             columns += ['ax', 'ay', 'az', 'gx', 'gy', 'gz']
             columns += [f'raw{i}' for i in range(1, 9)]
+            columns += ['sensor_valid_mask', 'imu_valid']
+            columns += [f'cal{i}' for i in range(1, 9)] + [f'filtered{i}' for i in range(1, 9)]
+            columns += [f'corrected_{axis}' for axis in ('ax', 'ay', 'az', 'gx', 'gy', 'gz')]
             for foot in ('left', 'right'):
                 file = (self.path / f'{foot}.csv').open('x', newline='', encoding='utf-8')
                 self.files.append(file)
@@ -143,7 +147,7 @@ class Recording:
                 file.close()
             raise
 
-    def append(self, data, address, rx, sequence_status, gap, clock):
+    def append(self, data, address, rx, sequence_status, gap, clock, processed=None):
         rx_utc = utc_now()
         record = dict(host_rx_us=rx, host_rx_utc=rx_utc,
                       source=list(address), packet=data)
@@ -157,6 +161,11 @@ class Recording:
                    data['t_us'] + offset if clock else '']
             row += data['pressure'] + [''] * (8 - len(data['pressure'])) + (data.get('imu') or [''] * 6)
             row += (data.get('raw') or [''] * 8) + ([''] * (8 - len(data['raw'])) if data.get('raw') else [])
+            row += [data.get('sensor_valid_mask', 255), data.get('imu_valid', data.get('imu') is not None)]
+            processed = processed or {}
+            row += processed.get('calibrated_pressure') or [''] * 8
+            row += processed.get('filtered_pressure') or [''] * 8
+            row += processed.get('corrected_imu') or [''] * 6
             self.writers[data['foot']].writerow(row)
             self.counts[data['foot']] += 1
         if time.monotonic() - self.last_flush >= 1:
@@ -191,11 +200,12 @@ class Recording:
 
 
 class Receiver:
-    def __init__(self, sensor_count=8, analysis=None):
+    def __init__(self, sensor_count=8, analysis=None, observer=None):
         if sensor_count not in (4, 8):
             raise ValueError('Sensor profile must be 4 (trial) or 8 (production)')
         self.sensor_count = sensor_count
         self.analysis = analysis
+        self.observer = observer
         self.lock = threading.RLock()
         self.sock = None
         self.thread = None
@@ -307,8 +317,9 @@ class Receiver:
         dev.update(last_rx=rx, latest=data)
         if dev['clock'] and rx - dev['clock']['measured_host_us'] > 30_000_000:
             dev['clock'] = None
+        processed = self.observer(data, rx, dev['clock'], status) if self.observer else None
         if self.recording:
-            self.recording.append(data, address, rx, status, gap, dev['clock'])
+            self.recording.append(data, address, rx, status, gap, dev['clock'], processed)
         if self.analysis:
             self.analysis.submit(data, rx, dev['clock'], status)
 
@@ -374,7 +385,7 @@ class Receiver:
                         stats=dict(self.stats), error=self.error, path=self.last_path,
                         counts=dict(self.recording.counts) if self.recording else {})
 
-    def start_recording(self, root, subject, label, notes):
+    def start_recording(self, root, subject, label, notes, extra_metadata=None):
         with self.lock:
             if self.recording:
                 raise ValueError('Recording already active')
@@ -387,7 +398,8 @@ class Receiver:
             if not subject.strip() or not label.strip():
                 raise ValueError('Subject ID and label are required')
             self.recording = Recording(root, subject.strip(), label.strip(), notes.strip(), snap['devices'],
-                                       self.sensor_count, self.analysis.snapshot()['model'] if self.analysis else None)
+                                       self.sensor_count, self.analysis.snapshot()['model'] if self.analysis else None,
+                                       extra_metadata)
             self.last_path = str(self.recording.path)
             return self.last_path
 

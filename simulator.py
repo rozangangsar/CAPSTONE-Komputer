@@ -21,6 +21,7 @@ class Simulator:
         self.sockets = []
         self.sent = 0
         self.error = None
+        self.motion = 'walking'
 
     def start(self):
         if self.thread:
@@ -52,12 +53,15 @@ class Simulator:
                         if self.drop_every and seq and seq % self.drop_every == 0 and i == 1:
                             continue
                         phase = (current - start) * 2 * math.pi + i * math.pi
-                        contact = max(0, math.sin(phase))
+                        contact = max(0, math.sin(phase)) if self.motion == 'walking' else 0
+                        pressure = [round(100 + contact * (800 + j * 35), 2) for j in range(8)]
                         sample = dict(v=1, type='sample', foot=foot,
                                       device_id=f'demo-{foot}', boot_id=boots[i],
                                       seq=seq, sample_index=seq, t_us=timestamp(i), fs_hz=self.hz,
-                                      pressure=[round(100 + contact * (800 + j * 35), 2) for j in range(8)],
-                                      imu=[round(math.sin(phase), 4), 0, 1, 0, round(math.cos(phase), 4), 0])
+                                      pressure=pressure, raw=[round(28_000_000-p*2000) for p in pressure],
+                                      sensor_valid_mask=255, imu_valid=True,
+                                      imu=[0, round(100*math.cos(phase)) if self.motion == 'walking' else 0, 0,
+                                           round(1000*math.sin(phase)) if self.motion == 'walking' else 0, 0, 16384])
                         self.sockets[i].sendto(json.dumps(sample).encode(), self.target)
                         self.sent += 1
                     seq += 1

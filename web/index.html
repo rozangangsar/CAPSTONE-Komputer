@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#edf4fe">
+  <title>Smart Insole · Ruang akuisisi</title>
+  <link rel="preload" href="/assets/fonts/jakarta.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Lewati navigasi</a>
+<aside class="rail">
+  <a class="brand" href="#acquisition" aria-label="Smart Insole, akuisisi"><img class="brand-mark" src="/assets/insole-white.svg" width="28" height="50" alt=""><span>Smart<br>Insole<span class="brand-dot">.</span></span></a>
+  <nav aria-label="Navigasi utama">
+    <a href="#acquisition" data-view="acquisition"><span aria-hidden="true">◉</span> Akuisisi</a>
+    <a href="#results" data-view="results"><span aria-hidden="true">◷</span> Hasil analisis</a>
+    <a href="#sessions" data-view="sessions"><span aria-hidden="true">▤</span> Riwayat sesi</a>
+  </nav>
+  <div class="rail-bottom"><span class="local-mark"><i></i> Berjalan lokal</span><p>Data tetap di laptopmu.</p><span id="demo-badge" class="demo-badge" hidden>Mode demo · data simulasi</span></div>
+</aside>
+<main id="main">
+  <header class="page-header">
+    <div><p class="date" id="today"></p><h1 id="page-title">Ruang akuisisi</h1></div>
+    <div class="header-actions"><span id="connection" class="status-chip"><i></i> Belum menerima</span><button id="connect" class="button primary" type="button">Mulai menerima</button></div>
+  </header>
+  <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+  <section id="view-acquisition" class="view">
+    <div class="workspace">
+      <section class="monitor surface" aria-labelledby="distribution-title">
+        <div class="section-heading"><h2 id="distribution-title">Distribusi respons</h2><div class="segmented" aria-label="Tampilan nilai"><button type="button" data-mode="processed" aria-pressed="true">Diproses</button><button type="button" data-mode="original" aria-pressed="false">Respons ESP</button></div></div>
+        <div class="feet">
+          <div class="foot-column" id="foot-left"><div class="foot-heading"><h3>Kaki kiri</h3><span class="foot-status" id="status-left">Menunggu</span></div><div class="foot-map" data-foot="left"></div><div class="foot-reading"><span id="reading-left">—</span><small>counts</small></div><p class="foot-detail" id="detail-left">Belum ada data</p></div>
+          <div class="foot-column" id="foot-right"><div class="foot-heading"><h3>Kaki kanan</h3><span class="foot-status" id="status-right">Menunggu</span></div><div class="foot-map" data-foot="right"></div><div class="foot-reading"><span id="reading-right">—</span><small>counts</small></div><p class="foot-detail" id="detail-right">Belum ada data</p></div>
+        </div>
+        <div class="heat-legend"><span>Rendah</span><div></div><span>Tinggi</span><small>Skala bersama 0–1200 counts</small></div>
+        <div class="plot-section">
+          <div class="section-heading"><div><h2 id="channel-title">Kanal 1 · Tumit</h2><p class="small muted">10 detik terakhir</p></div><button id="pause-chart" class="button quiet small-button" type="button" aria-pressed="false">Jeda grafik</button></div>
+          <div id="channel-picker" class="channel-picker" aria-label="Pilih kanal sensor"></div>
+          <div class="chart-legend"><span><i class="left-dot"></i>Kiri</span><span><i class="right-dot"></i>Kanan</span></div>
+          <canvas id="sensor-chart" height="190" role="img" aria-label="Grafik respons kanal terpilih untuk kaki kiri dan kanan. Nilai terbaru ditampilkan di atas."></canvas>
+          <div id="chart-empty" class="chart-empty">Grafik muncul saat insole mengirim data.</div>
+        </div>
+      </section>
+
+      <aside class="controls">
+        <section class="record-panel surface" aria-labelledby="record-title">
+          <div class="section-heading"><h2 id="record-title">Rekam sesi</h2><span id="record-indicator" class="small muted">Siap</span></div>
+          <form id="record-form">
+            <label for="subject">ID subjek</label><input id="subject" name="subject" value="S001" maxlength="64" required autocomplete="off" spellcheck="false">
+            <label for="activity">Aktivitas</label><select id="activity" name="activity"><option value="walking">Berjalan</option><option value="standing">Berdiri</option><option value="TEST_ONLY">Uji sensor</option></select>
+            <details class="notes"><summary>Tambahkan catatan</summary><label class="sr-only" for="notes">Catatan sesi</label><textarea id="notes" name="notes" maxlength="2000" rows="3" placeholder="Contoh: sepatu dan kondisi pengujian…"></textarea></details>
+            <div class="record-clock"><span id="record-time">00:00</span><span id="record-counts">Belum merekam</span></div>
+            <button id="record" class="button primary wide" type="submit"><span aria-hidden="true">●</span> Mulai rekam</button>
+          </form>
+          <a id="export-last" class="button secondary wide" hidden>Unduh dataset</a>
+        </section>
+        <section class="calibration-panel surface" aria-labelledby="calibration-title">
+          <h2 id="calibration-title">Kalibrasi</h2>
+          <button id="cal-pressure" class="calibration-action" type="button"><span class="cal-icon" aria-hidden="true">◎</span><span>Kalibrasi tekanan<small id="cal-pressure-state">Belum diambil</small></span><span aria-hidden="true">↻</span></button>
+          <button id="cal-imu" class="calibration-action" type="button"><span class="cal-icon" aria-hidden="true">⌖</span><span>Kalibrasi IMU<small id="cal-imu-state">Belum diambil</small></span><span aria-hidden="true">↻</span></button>
+          <div id="calibration-progress" hidden><label class="sr-only" for="cal-progress">Progres kalibrasi</label><progress id="cal-progress" max="1" value="0"></progress></div>
+          <p id="cal-message" class="small muted" aria-live="polite">Ambil saat insole diam, tanpa beban.</p>
+        </section>
+        <section class="demo-panel" id="demo-controls" hidden><span class="small">Gerakan simulasi</span><div class="segmented"><button type="button" data-motion="standing" aria-pressed="true">Diam</button><button type="button" data-motion="walking" aria-pressed="false">Berjalan</button></div></section>
+        <details class="technical"><summary>Koneksi & detail sensor</summary><label for="udp-port">Port UDP</label><input id="udp-port" name="port" type="number" min="1" max="65535" value="9000"><p class="small">ESP mengirim ke IP Wi-Fi laptop. Pengukuran ini berupa respons sensor, bukan kPa.</p><div id="hardware-detail" class="small"></div></details>
+      </aside>
+    </div>
+  </section>
+
+  <section id="view-results" class="view" hidden>
+    <div id="result-empty" class="empty-state surface"><span class="empty-symbol" aria-hidden="true">◷</span><h2>Hasil menunggu langkahmu.</h2><p>Rekam sesi, lalu pilih Stop & analisis.</p><a class="button primary" href="#acquisition">Kembali ke akuisisi</a></div>
+    <div id="result-loading" class="empty-state surface" hidden><span class="loader" aria-hidden="true"></span><h2>Membaca jejak langkah…</h2><p>Rekaman sudah tersimpan. CNN sedang memproses sesi.</p></div>
+    <div id="result-content" hidden>
+      <div class="result-top surface"><div><span class="test-badge">Model uji</span><h2 id="result-label">—</h2><p id="result-message"></p></div><div class="result-actions"><a id="result-export" class="button primary">Unduh dataset</a><a class="button secondary" href="#acquisition">Rekam sesi baru</a></div></div>
+      <dl class="result-stats"><div><dt>Jendela valid</dt><dd id="result-windows">—</dd></div><div><dt>Durasi rekaman</dt><dd id="result-duration">—</dd></div><div><dt>Rata-rata skor abnormal</dt><dd id="result-score">—</dd></div></dl>
+      <section class="surface result-plot"><div class="section-heading"><h2>Sepanjang sesi</h2><span class="small muted">Skor abnormal per jendela</span></div><canvas id="result-chart" height="210" role="img" aria-label="Skor abnormal selama sesi; data numerik tersedia pada tabel di bawah."></canvas><details><summary>Lihat nilai per jendela</summary><p id="window-limit" class="small muted" hidden>200 jendela pertama. Seluruh nilai tersedia di CSV hasil.</p><div class="table-scroll"><table><thead><tr><th>Waktu</th><th>Prediksi</th><th>Skor abnormal</th></tr></thead><tbody id="window-rows"></tbody></table></div></details></section>
+      <details class="technical result-details"><summary>Tentang hasil ini</summary><p>Model saat ini hanya untuk uji pipeline, bukan diagnosis. Kalibrasi disimpan untuk pemeriksaan dan training; model legacy tetap memakai respons firmware aslinya.</p><p id="model-detail"></p></details>
+    </div>
+  </section>
+
+  <section id="view-sessions" class="view" hidden>
+    <section class="surface sessions-panel"><div class="section-heading"><h2>Jejak yang tersimpan</h2><button id="refresh-sessions" class="button secondary" type="button">Muat ulang</button></div><div class="table-scroll"><table><thead><tr><th>Subjek & sesi</th><th>Aktivitas</th><th>Tanggal</th><th>Sampel kiri / kanan</th><th>Aksi</th></tr></thead><tbody id="session-rows"></tbody></table></div><p id="sessions-empty" class="empty-table" hidden>Belum ada sesi. Rekaman pertamamu akan muncul di sini.</p></section>
+  </section>
+  <footer class="page-footer"><span>Smart Insole Research</span><span id="footer-state">8 kanal per kaki · 30 Hz</span></footer>
+</main>
+</body>
+</html>
