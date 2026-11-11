@@ -45,6 +45,9 @@ def analyze_recording(folder):
     metadata = json.loads((folder / 'metadata.json').read_text(encoding='utf-8'))
     if metadata.get('status') != 'complete':
         raise ValueError('Sesi belum tersimpan lengkap')
+    if metadata.get('input_format') == 'public_pressure_100hz':
+        from public_model import analyze
+        return analyze(folder)
     model_meta = json.loads((MODEL_DIR / 'gait_test_model.json').read_text(encoding='utf-8'))
     preprocessing = model_meta.get('preprocessing', 'firmware_response')
     if preprocessing not in ('firmware_response', 'host_calibration_v1'):

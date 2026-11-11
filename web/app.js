@@ -7,10 +7,10 @@ const percent = new Intl.NumberFormat('id-ID', { style: 'percent', maximumFracti
 const dates = new Intl.DateTimeFormat('id-ID', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let state = null, selected = 0, mode = 'processed', paused = false, busy = false, online = false;
+let sessionReplay = null, replayRequest = 0;
 let resultId = null, resultCache = null, currentView = '', firstState = true;
 const path = 'M58.5 6C127.4-6 123.5 93 104 129C79.3 198 114.4 282 76.7 297C23.4 309 23.4 249 27.3 195C29.9 129 3.9 39 58.5 6Z';
 
-$('today').textContent = new Intl.DateTimeFormat('id-ID', {weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(new Date());
 for (const foot of feet) {
   const container = document.querySelector(`[data-foot="${foot}"]`);
   container.innerHTML = `<svg viewBox="0 0 130 310" aria-hidden="true"><defs><clipPath id="clip-${foot}"><path d="${path}" transform="${foot==='right'?'translate(130 0) scale(-1 1)':''}"/></clipPath><filter id="blur-${foot}" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="12"/></filter></defs><path d="${path}" transform="${foot==='right'?'translate(130 0) scale(-1 1)':''}" fill="#edf3fd" stroke="#b8cdeb" stroke-width="1.1"/><g clip-path="url(#clip-${foot})" filter="url(#blur-${foot})">${positions.map(([x,y],i)=>`<circle id="heat-${foot}-${i}" cx="${(foot==='right'?1-x:x)*130}" cy="${y*300}" r="29" fill="#2465e8" opacity="0"/>`).join('')}</g></svg>`;
@@ -37,6 +37,8 @@ chooseChannel(0);
 
 async function api(action, data={}) {
   if(busy) return false;
+  if(sessionReplay&&['record/start','calibrate'].includes(action))return false;
+  if(action==='connect'||action==='disconnect')sessionReplay=null;
   busy=true;renderControls();
   try {
     const response=await fetch(`/api/${action}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
@@ -71,7 +73,7 @@ function setView() {
   const requested=location.hash.slice(1);const view=['acquisition','results','sessions'].includes(requested)?requested:'acquisition';
   currentView=view;for(const item of ['acquisition','results','sessions']) $(`view-${item}`).hidden=item!==view;
   document.querySelectorAll('[data-view]').forEach(a=>{if(a.dataset.view===view)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
-  $('page-title').textContent={acquisition:'Ruang akuisisi',results:'Hasil analisis',sessions:'Riwayat sesi'}[view];
+  $('page-title').textContent={acquisition:'Live preview',results:'Hasil analisis',sessions:'Riwayat sesi'}[view];
   if(view==='sessions')loadSessions();
   if(state){if(view==='acquisition')renderMonitor();if(view==='results')renderResult();}
 }
@@ -88,7 +90,7 @@ function renderControls() {
   const fullSync=live.length===2&&feet.every(foot=>state.devices[foot].clock&&state.devices[foot].clock.rtt_us<=20000);
   $('connection').classList.toggle('live',live.length>0);
   $('connection').lastChild.textContent=!online?' Server terputus':fullSync?' Kedua insole tersinkron':live.length===2?' Menyinkronkan insole':live.length===1?' Satu insole aktif':state.running?' Menunggu insole':' Belum menerima';
-  $('record').disabled=busy || !online || !!capture || analyzing || (!state.recording&&!live.length);
+  $('record').disabled=!!sessionReplay || busy || !online || !!capture || analyzing || (!state.recording&&!live.length);
   $('record').classList.toggle('recording',state.recording);
   $('record').innerHTML=state.recording?'<span aria-hidden="true">■</span> Stop & analisis':'<span aria-hidden="true">●</span> Mulai rekam';
   ['subject','activity','notes'].forEach(id=>$(id).disabled=state.recording||busy);
@@ -98,7 +100,7 @@ function renderControls() {
   $('export-last').hidden=!state.path || state.recording || analyzing;
   $('export-last').href=state.path?exportUrl(state.path):'#';
   ['pressure','imu'].forEach(kind=>{
-    $(`cal-${kind}`).disabled=busy||!online||state.recording||!!capture||!live.length;
+    $(`cal-${kind}`).disabled=!!sessionReplay||busy||!online||state.recording||!!capture||!live.length;
     const profiles=state.calibration.profiles[kind];
     const ready=live.filter(foot=>profiles[foot]);
     $(`cal-${kind}-state`).textContent=capture===kind?'Mengambil sampel…':ready.length?`${ready.map(f=>f==='left'?'Kiri':'Kanan').join(' & ')} tersimpan`:'Belum diambil';
@@ -110,7 +112,7 @@ function renderControls() {
   $('hardware-detail').textContent=feet.filter(foot=>state.devices[foot]).map(foot=>{
     const d=state.devices[foot], history=state.calibration.history[foot], imu=history[history.length-1]?.imu;
     const axes=isLive(foot)&&d.latest.imu_valid!==false&&imu?`\nAccel: ${imu.slice(0,3).map(v=>n.format(v)).join(', ')} | Gyro: ${imu.slice(3).map(v=>n.format(v)).join(', ')} counts`:'\nIMU: tidak ada data segar/valid';
-    return `${foot==='left'?'Kiri':'Kanan'}: ${d.device_id}, ${d.rate} paket/s${d.clock?`, RTT ${n.format(d.clock.rtt_us/1000)} ms`: ', sync belum tersedia'}${axes}`;
+    return `${foot==='left'?'Kiri':'Kanan'}: ${d.device_id}${d.clock?`, RTT ${n.format(d.clock.rtt_us/1000)} ms`: ', sync belum tersedia'}${axes}`;
   }).join('\n\n');
   $('footer-state').textContent=state.demo?'Data simulasi untuk uji pipeline':`${state.stats.valid} paket · ${state.stats.gaps} celah urutan`;
 }
@@ -124,7 +126,7 @@ function renderMonitor() {
     const count=Array.from({length:8},(_,i)=>Boolean(mask&(1<<i))).filter(Boolean).length;
     $(`status-${foot}`).textContent=live?(count===8?'Terhubung':`${count}/8 kanal valid`):'Menunggu';
     $(`status-${foot}`).className=`foot-status ${live?(count===8?'live':'invalid'):''}`;
-    $(`detail-${foot}`).textContent=live?`${d.rate} paket/s${state.calibration.profiles.pressure[foot]?' · baseline tersimpan':''}`:'Belum ada data';
+    $(`detail-${foot}`).textContent=live?(state.calibration.profiles.pressure[foot]?'Baseline tersimpan':''):'Belum ada data';
     positions.forEach((_,i)=>{
       const valid=live&&Boolean(mask&(1<<i))&&values?.[i]!=null;
       const strength=valid?Math.max(0,Math.min(1,values[i]/1200)):0;
@@ -183,7 +185,7 @@ function renderResult() {
     $('result-duration').textContent=clockText(result.recording_seconds);
     $('result-score').textContent=result.abnormal_probability==null?'—':percent.format(result.abnormal_probability);
     $('result-export').href=exportUrl(result.session);
-    $('model-detail').textContent=`${result.model_version}. ${result.preprocessing}. ${result.discontinuities} reset/gap saat penyelarasan. Skor belum dikalibrasi sebagai probabilitas klinis.`;
+    $('model-detail').textContent='';
     $('window-rows').innerHTML=result.timeline.slice(0,200).map(p=>`<tr><td>${n.format(p.start_s)}–${n.format(p.end_s)} s</td><td>${p.label==='NORMAL'?'Normal':'Abnormal'}</td><td>${percent.format(p.abnormal_probability)}</td></tr>`).join('');
     $('window-limit').hidden=result.timeline.length<=200;
   }
@@ -194,7 +196,8 @@ async function loadSessions() {
   try {
     const response=await fetch('/api/sessions');if(!response.ok)throw new Error('Riwayat belum dapat dibuka');
     const sessions=await response.json();$('sessions-empty').hidden=!!sessions.length;
-    $('session-rows').innerHTML=sessions.map(s=>`<tr><td><strong>${esc(s.subject)}</strong><small>${esc(s.id)}</small></td><td>${esc(s.label)}</td><td>${esc(dates.format(new Date(s.started)))}</td><td>${n.format(s.counts.left||0)} / ${n.format(s.counts.right||0)}</td><td><div class="table-actions">${s.status==='complete'?`<button type="button" class="button secondary" data-analyze="${esc(s.id)}">Analisis</button><a class="button quiet" href="${exportUrl(s.id)}">Unduh</a>`:`<span class="muted small">${s.status==='recording'?'Merekam':'Sesi parsial'}</span>`}</div></td></tr>`).join('');
+    $('session-rows').innerHTML=sessions.map(s=>`<tr><td><strong>${esc(s.subject)}</strong><small>${esc(s.id)}</small></td><td>${esc(s.label)}</td><td>${esc(dates.format(new Date(s.started)))}</td><td>${n.format(s.counts.left||0)} / ${n.format(s.counts.right||0)}</td><td><div class="table-actions">${s.status==='complete'?`<button type="button" class="button secondary" data-analyze="${esc(s.id)}">Analisis</button><button type="button" class="button secondary" data-replay="${esc(s.id)}">Replay</button><a class="button quiet" href="${exportUrl(s.id)}">Unduh</a>`:`<span class="muted small">${s.status==='recording'?'Merekam':'Sesi parsial'}</span>`}</div></td></tr>`).join('');
+    document.querySelectorAll('[data-replay]').forEach(b=>b.addEventListener('click',()=>startSessionReplay(b.dataset.replay)));
     document.querySelectorAll('[data-analyze]').forEach(b=>b.addEventListener('click',async()=>{if(await api('analyze',{session:b.dataset.analyze}))location.hash='results';}));
   } catch(error){notice(error.message);}
 }
@@ -213,7 +216,7 @@ async function refresh() {
     }
     if(firstState&&state.demo){$('subject').value='DEMO-S001';firstState=false;}
     if(state.error)notice(state.error);
-    renderControls();renderMonitor();renderResult();
+    applySessionReplay();renderControls();renderMonitor();renderResult();
   } catch(error) {
     online=false;notice('Koneksi aplikasi lokal terputus. Periksa terminal server sebelum melanjutkan.');
     renderControls();if(state)renderMonitor();
@@ -221,3 +224,31 @@ async function refresh() {
 }
 window.addEventListener('beforeunload',event=>{if(state?.recording){event.preventDefault();event.returnValue='';}});
 (async()=>{while(true){await refresh();await new Promise(resolve=>setTimeout(resolve,document.hidden?1000:200));}})();
+
+async function startSessionReplay(session) {
+  if(state?.recording||state?.calibration.active)return;
+  const request=++replayRequest;
+  try {
+    const response=await fetch(`/api/replay/${encodeURIComponent(session)}`);
+    const rows=await response.json();if(!response.ok)throw Error(rows.error);
+    if(request!==replayRequest)return;
+    sessionReplay={rows,index:0,start:performance.now(),history:{left:[],right:[]},devices:{}};
+    paused=false;$('pause-chart').textContent='Jeda grafik';$('pause-chart').setAttribute('aria-pressed','false');
+    notice('');location.hash='acquisition';await refresh();
+  }catch(error){notice(error.message);}
+}
+function applySessionReplay() {
+  if(!sessionReplay)return;
+  const replay=sessionReplay,elapsed=(performance.now()-replay.start)/1000;
+  if(elapsed>replay.rows.at(-1).t+.5){sessionReplay=null;return;}
+  while(replay.index<replay.rows.length&&replay.rows[replay.index].t<=elapsed){
+    const row=replay.rows[replay.index++],history=replay.history[row.foot];
+    history.push({t:row.t,values:row.values,original:row.original,imu:row.imu});
+    replay.devices[row.foot]={device_id:row.foot,rate:row.rate,sampleTime:row.t,latest:{sensor_valid_mask:row.mask,imu_valid:!!row.imu}};
+  }
+  for(const foot of feet){
+    const history=replay.history[foot];while(history.length&&history[0].t<elapsed-10)history.shift();
+    if(replay.devices[foot])replay.devices[foot].age_s=elapsed-replay.devices[foot].sampleTime;
+  }
+  state={...state,running:true,devices:replay.devices,calibration:{...state.calibration,history:replay.history,profiles:{pressure:{},imu:{}}}};
+}

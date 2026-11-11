@@ -177,6 +177,9 @@ def make_server(app, port=8765):
                     return self.reply(200, app.state())
                 if path == '/api/sessions':
                     return self.reply(200, app.sessions())
+                if path.startswith('/api/replay/'):
+                    from session_replay import read_replay
+                    return self.reply(200, read_replay(app.session_path(path.removeprefix('/api/replay/'))))
                 if path == '/api/result':
                     with app.lock:
                         return self.reply(200, app.analysis['result'])
